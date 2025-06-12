@@ -7,7 +7,7 @@ from tensorflow.keras.models import load_model
 # === Load Model and Preprocessing Artifacts ===
 @st.cache_resource
 def load_artifacts():
-    model = load_model("dnn_aml_model.keras")
+    model = load_model("dnn_aml_model.h5")
     with open("scaler.pkl", "rb") as f:
         scaler = pickle.load(f)
     try:
