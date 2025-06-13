@@ -16,6 +16,7 @@ def load_artifacts():
         threshold = metadata.get("threshold", 0.5)
         feature_names = metadata.get("features", [])
     except:
+        st.warning("Metadata not found. Using default threshold (0.5) and auto-selecting numeric features.")
         threshold = 0.5
         feature_names = []
     return model, scaler, threshold, feature_names
@@ -25,10 +26,10 @@ model, scaler, threshold, feature_names = load_artifacts()
 # === Streamlit Page Configuration ===
 st.set_page_config(page_title="AML Transaction Classifier", layout="wide")
 st.title("Anti-Money Laundering (AML) Detection System")
+
 st.markdown("""
-This application deploys a Deep Neural Network (DNN) model to detect potentially suspicious transactions. 
-Users can input financial transaction data either manually or by uploading a CSV file. 
-The model evaluates each transaction based on pre-engineered behavioral and structural features.
+This application deploys a Deep Neural Network (DNN) model trained on synthetic financial transactions to flag potential laundering behavior. 
+You can either upload a CSV file or manually enter values to test the model's predictions.
 """)
 
 # === Prediction Function ===
@@ -37,44 +38,47 @@ def predict(input_df):
     probabilities = model.predict(scaled_input).flatten()
     predictions = (probabilities >= threshold).astype(int)
     results = input_df.copy()
-    results["Fraud Probability"] = probabilities
-    results["AML Risk Classification"] = np.where(predictions == 1, "Suspicious", "Legitimate")
+    results["Fraud Probability"] = np.round(probabilities, 4)
+    results["AML Risk Classification"] = np.where(predictions == 1, "⚠️ Suspicious", "✅ Legitimate")
     return results
 
-# === Input Method Selection ===
+# === Sidebar Input Method Selection ===
 st.sidebar.header("Input Method")
-input_method = st.sidebar.radio("Choose how to provide transaction data:", ["Upload CSV File", "Manual Input"])
+input_method = st.sidebar.radio("Select how to provide transaction data:", ["Upload CSV File", "Manual Input"])
 
-# === File Upload ===
+# === Upload CSV File ===
 if input_method == "Upload CSV File":
-    uploaded_file = st.sidebar.file_uploader("Upload a CSV file with transaction data", type=["csv"])
+    uploaded_file = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
     if uploaded_file:
         try:
             df = pd.read_csv(uploaded_file)
             input_features = df[feature_names] if feature_names else df.select_dtypes(include=[np.number])
-            output_df = predict(input_features)
-            st.success(f"Processed {len(df)} transactions.")
-            st.dataframe(output_df)
+            if input_features.empty:
+                st.error("No numeric features available for prediction.")
+            else:
+                output_df = predict(input_features)
+                st.success(f"Processed {len(df)} transactions.")
+                st.dataframe(output_df)
 
-            st.subheader("Summary")
-            suspicious_count = (output_df["AML Risk Classification"] == "Suspicious").sum()
-            st.write(f"Suspicious transactions detected: {suspicious_count}")
+                st.subheader("Summary Report")
+                suspicious_count = (output_df["AML Risk Classification"] == "⚠️ Suspicious").sum()
+                st.metric(label="Suspicious Transactions", value=suspicious_count)
         except Exception as e:
-            st.error(f"Failed to process the file: {e}")
+            st.error(f"File processing failed: {e}")
 
-# === Manual Input Form ===
+# === Manual Input ===
 elif input_method == "Manual Input":
     if not feature_names:
-        st.warning("Manual input is unavailable because feature names are missing from metadata.")
+        st.warning("Manual input disabled. Feature names not found in metadata.")
     else:
-        st.sidebar.subheader("Enter feature values")
+        st.sidebar.subheader("Enter Feature Values")
         user_input = {feature: st.sidebar.number_input(f"{feature}", value=0.0) for feature in feature_names}
         input_df = pd.DataFrame([user_input])
         if st.sidebar.button("Classify"):
             result_df = predict(input_df)
             st.subheader("Classification Result")
-            st.write(result_df[["Fraud Probability", "AML Risk Classification"]])
+            st.table(result_df[["Fraud Probability", "AML Risk Classification"]])
 
 # === Footer ===
 st.markdown("---")
-st.caption("Developed for MSc Cybersecurity Final Year Project | AML Detection using Deep Learning and Federated Learning Techniques")
+st.caption("Developed as part of MSc Cybersecurity Final Year Project | AML Detection via Deep Learning & Federated Learning")
