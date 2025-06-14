@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 import pickle
 from tensorflow.keras.models import load_model
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Force TensorFlow to use CPU
+
 
 # === Load Model and Preprocessing Artifacts ===
 @st.cache_resource
