@@ -1,87 +1,56 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import pickle
-from tensorflow.keras.models import load_model
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Force TensorFlow to use CPU
+import joblib
+import tensorflow as tf
+from utils.preprocessing import preprocess_input, expected_features
 
+# === Page Config ===
+st.set_page_config(page_title="AML Detection - DNN Model", layout="centered")
 
-# === Load Model and Preprocessing Artifacts ===
-@st.cache_resource
-def load_artifacts():
-    model = load_model("dnn_aml_model.h5")
-    with open("scaler.pkl", "rb") as f:
-        scaler = pickle.load(f)
+# === Load Model & Scaler ===
+model = tf.keras.models.load_model("best_model.h5")
+
+st.title("Anti-Money Laundering Detection (DNN Model)")
+st.markdown("Enter the transaction details below to predict the risk of money laundering.")
+
+# === Input Widgets ===
+user_input = {}
+with st.sidebar:
+    st.header("Transaction Input")
+
+    user_input['time_since_last'] = st.slider("Time Since Last Tx (hrs)", 0, 168, 24)
+    user_input['tx_count'] = st.slider("Transaction Count", 1, 100, 5)
+    user_input['total_paid'] = st.number_input("Total Paid (USD)", 0.0, 1e6, 1000.0)
+    user_input['is_dual_role'] = st.selectbox("Is Dual Role?", [0, 1])
+    user_input['amount_volatility'] = st.slider("Amount Volatility", 0.0, 1.0, 0.5)
+    user_input['structuring_flag'] = st.selectbox("Structuring Detected?", [0, 1])
+    user_input['hour_deviation'] = st.slider("Hour Deviation", 0.0, 5.0, 1.0)
+    user_input['high_freq_sender'] = st.selectbox("High Frequency Sender?", [0, 1])
+    user_input['high_risk_currency'] = st.selectbox("High Risk Currency?", [0, 1])
+    user_input['hour_sin'] = st.slider("Hour (sin)", -1.0, 1.0, 0.0)
+    user_input['hour_cos'] = st.slider("Hour (cos)", -1.0, 1.0, 1.0)
+    user_input['is_weekend'] = st.selectbox("Weekend Transaction?", [0, 1])
+    user_input['sender_degree'] = st.slider("Sender Degree", 0, 100, 10)
+    user_input['receiver_degree'] = st.slider("Receiver Degree", 0, 100, 10)
+    user_input['activity_ratio'] = st.slider("Activity Ratio", 0.0, 1.0, 0.5)
+    user_input['rapid_sequence'] = st.selectbox("Rapid Sequence?", [0, 1])
+    user_input['structured_tx'] = st.selectbox("Structured Transaction?", [0, 1])
+    user_input['component_id'] = st.slider("Graph Component ID", 0, 10000, 100)
+    user_input['sent_to'] = st.slider("Sent To (Accounts)", 0, 500, 10)
+    user_input['received_from'] = st.slider("Received From (Accounts)", 0, 500, 10)
+
+# === Prediction ===
+if st.button("Predict Laundering Risk"):
     try:
-        with open("metadata.pkl", "rb") as f:
-            metadata = pickle.load(f)
-        threshold = metadata.get("threshold", 0.5)
-        feature_names = metadata.get("features", [])
-    except:
-        st.warning("Metadata not found. Using default threshold (0.5) and auto-selecting numeric features.")
-        threshold = 0.5
-        feature_names = []
-    return model, scaler, threshold, feature_names
+        X = preprocess_input(user_input)
+        prediction = model.predict(X)[0][0]
+        label = "Likely Laundering" if prediction > 0.5 else "Legitimate Transaction"
 
-model, scaler, threshold, feature_names = load_artifacts()
+        st.subheader("Prediction Result")
+        st.metric(label="Prediction", value=label)
+        st.progress(prediction)
 
-# === Streamlit Page Configuration ===
-st.set_page_config(page_title="AML Transaction Classifier", layout="wide")
-st.title("Anti-Money Laundering (AML) Detection System")
-
-st.markdown("""
-This application deploys a Deep Neural Network (DNN) model trained on synthetic financial transactions to flag potential laundering behavior. 
-You can either upload a CSV file or manually enter values to test the model's predictions.
-""")
-
-# === Prediction Function ===
-def predict(input_df):
-    scaled_input = scaler.transform(input_df)
-    probabilities = model.predict(scaled_input).flatten()
-    predictions = (probabilities >= threshold).astype(int)
-    results = input_df.copy()
-    results["Fraud Probability"] = np.round(probabilities, 4)
-    results["AML Risk Classification"] = np.where(predictions == 1, "⚠️ Suspicious", "✅ Legitimate")
-    return results
-
-# === Sidebar Input Method Selection ===
-st.sidebar.header("Input Method")
-input_method = st.sidebar.radio("Select how to provide transaction data:", ["Upload CSV File", "Manual Input"])
-
-# === Upload CSV File ===
-if input_method == "Upload CSV File":
-    uploaded_file = st.sidebar.file_uploader("Upload a CSV file", type=["csv"])
-    if uploaded_file:
-        try:
-            df = pd.read_csv(uploaded_file)
-            input_features = df[feature_names] if feature_names else df.select_dtypes(include=[np.number])
-            if input_features.empty:
-                st.error("No numeric features available for prediction.")
-            else:
-                output_df = predict(input_features)
-                st.success(f"Processed {len(df)} transactions.")
-                st.dataframe(output_df)
-
-                st.subheader("Summary Report")
-                suspicious_count = (output_df["AML Risk Classification"] == "⚠️ Suspicious").sum()
-                st.metric(label="Suspicious Transactions", value=suspicious_count)
-        except Exception as e:
-            st.error(f"File processing failed: {e}")
-
-# === Manual Input ===
-elif input_method == "Manual Input":
-    if not feature_names:
-        st.warning("Manual input disabled. Feature names not found in metadata.")
-    else:
-        st.sidebar.subheader("Enter Feature Values")
-        user_input = {feature: st.sidebar.number_input(f"{feature}", value=0.0) for feature in feature_names}
-        input_df = pd.DataFrame([user_input])
-        if st.sidebar.button("Classify"):
-            result_df = predict(input_df)
-            st.subheader("Classification Result")
-            st.table(result_df[["Fraud Probability", "AML Risk Classification"]])
-
-# === Footer ===
-st.markdown("---")
-st.caption("Developed as part of MSc Cybersecurity Final Year Project | AML Detection via Deep Learning & Federated Learning")
+        st.write(f"**Probability of laundering:** `{prediction:.2%}`")
+    except Exception as e:
+        st.error(f"Prediction failed: {e}")
